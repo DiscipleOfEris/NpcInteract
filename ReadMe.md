@@ -13,5 +13,5 @@ Once the addon is in your Windower addons folder, it won't show up in the Window
 ## Commands
 
     //npc mirror -- Will toggle mirroring, causing all other alts to mirror this one.  
-    //ffo retry -- Retry the last NPC interaction.  
-    //ffo reset -- Try this if alts get frozen when attempting to interact with an NPC.  
+    //npc retry -- Retry the last NPC interaction.  
+    //npc reset -- Try this if alts get frozen when attempting to interact with an NPC.  
