@@ -1,6 +1,6 @@
 _addon.name = 'NpcInteract'
 _addon.author = 'DiscipleOfEris'
-_addon.version = '1.0.0'
+_addon.version = '1.0.1'
 _addon.command = 'npc'
 
 require('logger')
@@ -134,7 +134,7 @@ windower.register_event('incoming chunk', function(id, original, modified, injec
   
   if id == PACKET.NPC_INTERACT_1 or id == PACKET.NPC_INTERACT_2 then
     local packet = packets.parse('incoming', original)
-    log('npc interact', (id == PACKET.NPC_INTERACT_1 and 1 or 2))
+    --log('npc interact', (id == PACKET.NPC_INTERACT_1 and 1 or 2))
     success = 1
     inc = id
     if injecting then
