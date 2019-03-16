@@ -1,6 +1,6 @@
 _addon.name = 'NpcInteract'
 _addon.author = 'DiscipleOfEris'
-_addon.version = '1.0.1'
+_addon.version = '1.1.0'
 _addon.command = 'npc'
 
 require('logger')
@@ -11,6 +11,34 @@ require('coroutine')
 local res = require('resources')
 res.chat[6] = {id=6,en='system'}
 
+config = require('config')
+texts = require('texts')
+
+defaults = {}
+defaults.show = false
+defaults.mirror = false
+defaults.display = {}
+defaults.display.pos = {}
+defaults.display.pos.x = 0
+defaults.display.pos.y = 0
+defaults.display.bg = {}
+defaults.display.bg.red = 0
+defaults.display.bg.green = 0
+defaults.display.bg.blue = 0
+defaults.display.bg.alpha = 102
+defaults.display.text = {}
+defaults.display.text.font = 'Consolas'
+defaults.display.text.red = 255
+defaults.display.text.green = 255
+defaults.display.text.blue = 255
+defaults.display.text.alpha = 255
+defaults.display.text.size = 10
+
+settings = config.load(defaults)
+box = texts.new("", settings.display, settings)
+
+local report_info = T{}
+
 local PACKET = { ZONE_OUT = 0x00B, INCOMING_CHAT = 0x017, ACTION = 0x01A, DIALOG_CHOICE = 0x05B, NPC_INTERACT_1 = 0x032, NPC_INTERACT_2 = 0x034, UPDATE_CHAR = 0x037, NPC_RELEASE = 0x052 }
 local ACTION_CATEGORY = { NPC_INTERACTION = 0 }
 
@@ -19,7 +47,6 @@ local ACTION_CATEGORY = { NPC_INTERACTION = 0 }
 -- For ZONE_OUT, we just need to catch it within a few seconds of NPC_RELEASE.
 
 
-local mirroring = false
 local injecting = false
 local attempts = 0
 local npc
@@ -41,28 +68,34 @@ packets.raw_fields.incoming[PACKET.NPC_RELEASE] = L{
   {ctype='int',      label='_unknown1'},
 }
 
+windower.register_event('login', function()
+  coroutine.sleep(5)
+  if settings.mirror then log('Mirroring enabled. Other chars will attempt to clone interactions.') end
+end)
+
 windower.register_event('addon command', function(command, ...)
   args = T{...}
   command = command:lower()
   
   if not command then
-  
+    
   elseif command == 'mirror' then
     if not args[1] then
-      mirroring = not mirroring
+      settings.mirror = not settings.mirror
     elseif args[1] == 'on' then
-      mirroring = true
+      settings.mirror = true
     elseif args[1] == 'off' then
-      mirroring = false
+      settings.mirror = false
     end
     
-    if mirroring then log('Mirroring enabled. Other chars will attempt to clone interactions.')
+    if settings.mirror then log('Mirroring enabled. Other chars will attempt to clone interactions.')
     else log('Mirroring disabled.') end
+    config.save(settings)
   elseif command == 'reset' then
     reset()
   elseif command == 'retry' then
     log('retry', last_broadcast)
-    if mirroring and last_broadcast then
+    if settings.mirror and last_broadcast then
       windower.send_ipc_message(last_broadcast)
     elseif last_broadcast then
       local outs = msgStr:split(' out ')
@@ -72,6 +105,16 @@ windower.register_event('addon command', function(command, ...)
       out = outs
       inject()
     end
+  elseif command == 'report' then
+    if not args[1] then
+      settings.show = not settings.show
+    elseif args[1] == 'on' then
+      settings.show = true
+    elseif args[2] == 'off' then
+      settings.show = false
+    end
+    
+    config.save(settings)
   elseif command == 'test' then
     packets.inject(last_idle_packet)
   end
@@ -95,19 +138,23 @@ windower.register_event('ipc message', function(msgStr)
     inc = tonumber(pre[3])
     out = outs
     inject()
+  elseif command == 'success' then
+    local name = args[1]
+    local id = args[2]
+    
+    report_info[name] = true
   end
+end)
+
+windower.register_event('prerender', function()
+  updateInfo()
 end)
 
 windower.register_event('outgoing chunk', function(id, original, modified, injected, blocked)
   if id == PACKET.ACTION then
     packet = packets.parse('outgoing', original)
     
-    if packet.Category == ACTION_CATEGORY.NPC_INTERACTION then
-      last_npc = windower.ffxi.get_mob_by_index(packet['Target Index'])
-      --log('action', injected)
-    end
-    
-    if packet.Category == ACTION_CATEGORY.NPC_INTERACTION and mirroring --[[and not injected--]] then
+    if packet.Category == ACTION_CATEGORY.NPC_INTERACTION and settings.mirror --[[and not injected--]] then
       busy = true
       success = false
       out = T{}
@@ -120,7 +167,7 @@ windower.register_event('outgoing chunk', function(id, original, modified, injec
     last_packet = packet
     --log('dialog', injected)
     
-    if mirroring --[[and not injected--]] then
+    if settings.mirror --[[and not injected--]] then
       local target_id = packet['Target']
       if target_id == windower.ffxi.get_player()['id'] then target_id = 'me' end
       
@@ -180,7 +227,7 @@ windower.register_event('incoming chunk', function(id, original, modified, injec
     --log('status', status)
     
     if status == 0 and prev_status == 4 then
-      if success and mirroring and not busy then
+      if success and settings.mirror and not busy then
         broadcast()
         success = false
       end
@@ -194,15 +241,18 @@ windower.register_event('incoming chunk', function(id, original, modified, injec
     --log('release', success, busy)
     coroutine.sleep(1)
     --log('sleep', success, busy)
-    if success == 1 and mirroring then
+    if success == 1 and settings.mirror then
       success = true
       if status == 0 then busy = false end
-    elseif success and mirroring and status == 0 and not busy then
+    elseif success and settings.mirror and status == 0 and not busy then
       broadcast()
       success = false
       busy = false
-    elseif success and not mirroring then
+    elseif success and not settings.mirror then
       injecting = false
+      local self = windower.ffxi.get_player()
+      windower.send_ipc_message('success '..self.name)
+      log('success')
     elseif not success and injecting and attempts < MAX_ATTEMPTS then
       attempts = attempts + 1
       retry()
@@ -223,8 +273,10 @@ function broadcast()
   
   --print(msg)
   --log(msg)
+  report_info = T{}
   windower.send_ipc_message(msg)
   last_broadcast = msg
+  last_npc = npc
 end
 
 function inject()
@@ -290,6 +342,28 @@ function reset()
   else
     windower.add_to_chat(10,'You are not listed as in a menu interaction. Ignoring.')
   end
+end
+
+function updateInfo()
+  box:visible(settings.show)
+  local lines = T{}
+  for name, status in pairs(report_info) do
+    lines:insert(name..' √')
+  end
+  local maxWidth = math.max(1, table.reduce(lines, function(a, b) return math.max(a, #b) end, '1'))
+  for i,line in ipairs(lines) do lines[i] = lines[i]:lpad(' ', maxWidth) end
+  
+  if not npc then lines:insert(1, 'Mirroring '..(settings.mirror and 'enabled' or 'disabled'))
+  else
+    if last_npc and last_npc.id == npc_id then
+      if #lines == 0 then lines:insert('Broadcasting...') end
+      lines:insert(1, 'NPC: '..last_npc.name)
+    else
+      lines = T{'Interacting...'}
+    end
+  end
+  
+  box:text(lines:concat('\n'))
 end
 
 function distance(A, B)
