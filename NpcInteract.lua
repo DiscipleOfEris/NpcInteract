@@ -85,6 +85,7 @@ windower.register_event('addon command', function(command, ...)
   if not command or command == 'help'  then
     log('npc mirror [on/off] -- Toggle/enable/disable mirroring, causing all other alts to mirror this one.')
     log('npc report [on/off] -- Toggle/enable/disable reporting, showing when alts successfully mirror the main.')
+    log('npc fade <duration> -- Set how long it takes the report box to fade.')
     log('npc retry -- Retry the last NPC interaction.')
     log('npc reset -- Try this if alts get frozen when attempting to interact with an NPC.')
   elseif command == 'mirror' then
