@@ -1,6 +1,6 @@
 _addon.name = 'NpcInteract'
 _addon.author = 'DiscipleOfEris'
-_addon.version = '1.1.0'
+_addon.version = '1.1.1'
 _addon.command = 'npc'
 
 require('logger')
@@ -15,8 +15,9 @@ config = require('config')
 texts = require('texts')
 
 defaults = {}
-defaults.show = false
+defaults.show = true
 defaults.mirror = false
+defaults.fade = 10
 defaults.display = {}
 defaults.display.pos = {}
 defaults.display.pos.x = 0
@@ -25,7 +26,7 @@ defaults.display.bg = {}
 defaults.display.bg.red = 0
 defaults.display.bg.green = 0
 defaults.display.bg.blue = 0
-defaults.display.bg.alpha = 102
+defaults.display.bg.alpha = 127
 defaults.display.text = {}
 defaults.display.text.font = 'Consolas'
 defaults.display.text.red = 255
@@ -62,6 +63,9 @@ local response_id
 local out = T{}
 local inc = false
 
+local last_update_time = os.clock()
+local fade_duration = 2
+
 local MAX_ATTEMPTS = 20
 
 packets.raw_fields.incoming[PACKET.NPC_RELEASE] = L{
@@ -69,6 +73,7 @@ packets.raw_fields.incoming[PACKET.NPC_RELEASE] = L{
 }
 
 windower.register_event('login', function()
+  last_update_time = os.clock()
   coroutine.sleep(5)
   if settings.mirror then log('Mirroring enabled. Other chars will attempt to clone interactions.') end
 end)
@@ -118,8 +123,15 @@ windower.register_event('addon command', function(command, ...)
     end
     
     config.save(settings)
-  elseif command == 'test' then
-    packets.inject(last_idle_packet)
+  elseif command == 'fade' then
+    local fade_time = tonumber(args[1])
+    if fade_time and fade_time > 0 then
+      settings.fade = fade_time
+    else
+      settings.fade = 0
+    end
+    
+    config.save(settings)
   end
 end)
 
@@ -146,11 +158,13 @@ windower.register_event('ipc message', function(msgStr)
     local id = args[2]
     
     report_info[name] = true
+    if settings.mirror then last_update_time = os.clock() end
   end
 end)
 
 windower.register_event('prerender', function()
   updateInfo()
+  doFade()
 end)
 
 windower.register_event('outgoing chunk', function(id, original, modified, injected, blocked)
@@ -164,6 +178,7 @@ windower.register_event('outgoing chunk', function(id, original, modified, injec
       inc = false
       npc_id = packet.Target
       npc = windower.ffxi.get_mob_by_id(packet.Target)
+      if settings.mirror then last_update_time = os.clock() end
     end
   elseif id == PACKET.DIALOG_CHOICE then
     packet = packets.parse('outgoing', original)
@@ -175,6 +190,7 @@ windower.register_event('outgoing chunk', function(id, original, modified, injec
       if target_id == windower.ffxi.get_player()['id'] then target_id = 'me' end
       
       out:insert(T{target_id, packet['Option Index'], packet['_unknown1'], packet['Target Index'], tostring(packet['Automated Message']), packet['_unknown2'], packet['Zone'], packet['Menu ID']})
+      last_update_time = os.clock()
     end
   end
 end)
@@ -255,7 +271,6 @@ windower.register_event('incoming chunk', function(id, original, modified, injec
       injecting = false
       local self = windower.ffxi.get_player()
       windower.send_ipc_message('success '..self.name)
-      log('success')
     elseif not success and injecting and attempts < MAX_ATTEMPTS then
       attempts = attempts + 1
       retry()
@@ -280,6 +295,7 @@ function broadcast()
   windower.send_ipc_message(msg)
   last_broadcast = msg
   last_npc = npc
+  last_update_time = os.clock()
 end
 
 function inject()
@@ -367,6 +383,24 @@ function updateInfo()
   end
   
   box:text(lines:concat('\n'))
+end
+
+function doFade()
+  local opacity = 1
+  local diff = os.clock() - last_update_time
+  
+  if diff < settings.fade then
+    opacity = 1
+  elseif diff < settings.fade + fade_duration then
+    opacity = 1 - (diff-settings.fade) / fade_duration
+  else
+    opacity = 0
+  end
+  
+  box:alpha(opacity*defaults.display.text.alpha)
+  box:bg_alpha(opacity*defaults.display.bg.alpha)
+  
+  if opacity == 0 then box:visible(false) end
 end
 
 function distance(A, B)
