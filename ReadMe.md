@@ -5,6 +5,8 @@ Note that this addon has not been tested to work exhaustively in all cases. If y
 
 # PLEASE DISABLE NPCINTERACT BEFORE FILING A TICKET!
 
+Retry the interaction after restarting the character and disabling NpcInteract.
+
 This addon should work in the following cases:
 
 * Conquest NPCs (signet, etc.)
@@ -20,6 +22,8 @@ have to restart that character. You can force close a character with the `termin
 Again, if you experience an issue,
 
 # PLEASE DISABLE NPCINTERACT BEFORE FILING A TICKET! 
+
+Retry the interaction after restarting the character and disabling NpcInteract.
 
 ## Installation
 After downloading, extract to your Windower addons folder. Make sure the folder is called NpcInteract, rather than NpcInteract-master or NpcInteract-v1.whatever. Your file structure should look like this:
