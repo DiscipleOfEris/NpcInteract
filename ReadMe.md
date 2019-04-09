@@ -1,13 +1,13 @@
 # NpcInteract
 FFXI Windower addon for multiboxers to reduce tedious switching. Make your alts copy your main's NPC interactions!
 
-Note that this addon has not been tested to work exhaustively in all cases. If you experience an issue,
+Note that this addon is still a WORK IN PROGRESS has not been tested to function exhaustively in all cases. If you experience an issue,
 
 # PLEASE DISABLE NPCINTERACT BEFORE FILING A TICKET!
 
 Retry the interaction after restarting the character and disabling NpcInteract.
 
-This addon should work in the following cases:
+This addon hast been tested to work in the following cases:
 
 * Conquest NPCs (signet, etc.)
 * Field Manuals (changing page, getting tab buffs)
@@ -21,7 +21,7 @@ have to restart that character. You can force close a character with the `termin
 
 Again, if you experience an issue,
 
-# PLEASE DISABLE NPCINTERACT BEFORE FILING A TICKET! 
+# PLEASE DISABLE NPCINTERACT BEFORE FILING A TICKET!
 
 Retry the interaction after restarting the character and disabling NpcInteract.
 
