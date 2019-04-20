@@ -3,9 +3,9 @@ FFXI Windower addon for multiboxers to reduce tedious switching. Make your alts 
 
 Note that this addon is still a WORK IN PROGRESS has not been tested to function exhaustively in all cases. If you experience an issue,
 
-# PLEASE DISABLE NPCINTERACT BEFORE FILING A TICKET!
+# PLEASE DISABLE NPCINTERACT BEFORE FILING A TICKET ON FFERA!
 
-Retry the interaction after restarting the character and disabling NpcInteract.
+Retry the interaction after restarting the game and disabling NpcInteract.
 
 This addon hast been tested to work in the following cases:
 
@@ -13,7 +13,12 @@ This addon hast been tested to work in the following cases:
 * Field Manuals (changing page, getting tab buffs)
 * Custom Era Warp NPCs (NPC to XP location).
 * Outpost warp
-* Getting key items (telepoint, etc.)
+* Simple key item interactions (acquiring telepoint, etc.)
+* Chocobo merchants.
+* Entering most battlegrounds.
+* Windurst Missions
+    * Collecting the Cracked Mana Orb in 1-1 is random, so you may have to do it manually on each character.
+    * Only tested up through 5-2.
 
 For any other case, especially missions, I advise disabling NpcInteract, or at minimum double checking your progress manually on all characters.
 Either way, you will probably experience a character getting frozen or stuck. The `npc retry` command only works occasionally, so you'll probably
@@ -21,9 +26,9 @@ have to restart that character. You can force close a character with the `termin
 
 Again, if you experience an issue,
 
-# PLEASE DISABLE NPCINTERACT BEFORE FILING A TICKET!
+# PLEASE DISABLE NPCINTERACT BEFORE FILING A TICKET ON FFERA!
 
-Retry the interaction after restarting the character and disabling NpcInteract.
+Retry the interaction after restarting the game and disabling NpcInteract.
 
 ## Installation
 After downloading, extract to your Windower addons folder. Make sure the folder is called NpcInteract, rather than NpcInteract-master or NpcInteract-v1.whatever. Your file structure should look like this:
