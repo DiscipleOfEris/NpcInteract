@@ -1,6 +1,6 @@
 _addon.name = 'NpcInteract'
 _addon.author = 'DiscipleOfEris'
-_addon.version = '1.1.1'
+_addon.version = '1.2.0'
 _addon.command = 'npc'
 
 require('logger')
@@ -40,13 +40,16 @@ box = texts.new("", settings.display, settings)
 
 local report_info = T{}
 
-local PACKET = { ZONE_OUT = 0x00B, INCOMING_CHAT = 0x017, ACTION = 0x01A, DIALOG_CHOICE = 0x05B, NPC_INTERACT_1 = 0x032, NPC_INTERACT_2 = 0x034, UPDATE_CHAR = 0x037, NPC_RELEASE = 0x052 }
+local PACKET_INC = { ZONE_OUT = 0x00B, INCOMING_CHAT = 0x017, NPC_INTERACT_1 = 0x032, NPC_INTERACT_2 = 0x034, NPC_RELEASE = 0x052, DIALOG_INFORMATION = 0x05C, KEY_ITEM = 0x02A, UPDATE_CHAR = 0x037, }
+local PACKET_OUT = { ACTION = 0x01A, DIALOG_CHOICE = 0x05B, WARP_REQUEST = 0x05C, }
 local ACTION_CATEGORY = { NPC_INTERACTION = 0 }
+local CHAT_MODE = { SYSTEM = 6 }
 
 -- NPC interactions sometimes fail. Only clone interactions with NPC_INTERACT_1, NPC_INTERACT_2, or ZONE_OUT response.
 -- For NPC_INTERACT_1 and NPC_INTERACT_2, we must track UPDATE_CHAR's Status == 4 (Event). Interaction ends with Status = 0 (Idle).
 -- For ZONE_OUT, we just need to catch it within a few seconds of NPC_RELEASE.
 
+-- Sometimes receive packet 0x02A for KIs.
 
 local injecting = false
 local attempts = 0
@@ -61,14 +64,18 @@ local busy = false
 local success = false
 local response_id
 local out = T{}
-local inc = false
+local inc = 0
+local menu_id = 0
 
 local last_update_time = os.clock()
 local fade_duration = 2
 
 local MAX_ATTEMPTS = 20
 
-packets.raw_fields.incoming[PACKET.NPC_RELEASE] = L{
+local menus = T{}
+local resetting = false
+
+packets.raw_fields.incoming[PACKET_INC.NPC_RELEASE] = L{
   {ctype='int',      label='_unknown1'},
 }
 
@@ -107,10 +114,11 @@ windower.register_event('addon command', function(command, ...)
     if settings.mirror and last_broadcast then
       windower.send_ipc_message(last_broadcast)
     elseif last_broadcast then
-      local outs = msgStr:split(' out ')
+      local outs = last_broadcast:split(' out ')
       local pre = outs:remove(1):split(' ')
       npc_id = tonumber(pre[2])
       inc = tonumber(pre[3])
+      menu_id = tonumber(pre[4])
       out = outs
       inject()
     end
@@ -152,13 +160,21 @@ windower.register_event('ipc message', function(msgStr)
     local pre = outs:remove(1):split(' ')
     npc_id = tonumber(pre[2])
     inc = tonumber(pre[3])
+    menu_id = tonumber(pre[4])
     out = outs
+    coroutine.sleep(math.random()*2.5)
     inject()
   elseif command == 'success' then
     local name = args[1]
     local id = args[2]
     
     report_info[name] = true
+    if settings.mirror then last_update_time = os.clock() end
+  elseif command == 'failure' then
+    local name = args[1]
+    local id = args[2]
+    
+    report_info[name] = false
     if settings.mirror then last_update_time = os.clock() end
   end
 end)
@@ -169,10 +185,17 @@ windower.register_event('prerender', function()
 end)
 
 windower.register_event('outgoing chunk', function(id, original, modified, injected, blocked)
-  if id == PACKET.ACTION then
-    packet = packets.parse('outgoing', original)
+  --[[if     id == PACKET_OUT.ACTION then log('action')
+  elseif id == PACKET_OUT.DIALOG_CHOICE then log('dialog choice', packets.parse('outgoing', modified))
+  elseif id == PACKET_OUT.WARP_REQUEST then log('warp request')
+  end--]]
+  
+  if id == PACKET_OUT.ACTION then
+    packet = packets.parse('outgoing', modified)
+    npc = windower.ffxi.get_mob_by_id(packet.Target)
+    --log('action', success, busy)
     
-    if packet.Category == ACTION_CATEGORY.NPC_INTERACTION and settings.mirror --[[and not injected--]] then
+    if packet.Category == ACTION_CATEGORY.NPC_INTERACTION and settings.mirror and not (injecting and injected) then
       busy = true
       success = false
       out = T{}
@@ -181,72 +204,187 @@ windower.register_event('outgoing chunk', function(id, original, modified, injec
       npc = windower.ffxi.get_mob_by_id(packet.Target)
       if settings.mirror then last_update_time = os.clock() end
     end
-  elseif id == PACKET.DIALOG_CHOICE then
-    packet = packets.parse('outgoing', original)
+  elseif id == PACKET_OUT.DIALOG_CHOICE then
+    packet = packets.parse('outgoing', modified)
     last_packet = packet
-    --log('dialog', injected)
+    --log('dialog', success, busy)
     
-    if settings.mirror --[[and not injected--]] then
+    if settings.mirror and not (injecting and injected) then
+      local self = windower.ffxi.get_player()
       local target_id = packet['Target']
-      if target_id == windower.ffxi.get_player()['id'] then target_id = 'me' end
+      local target_idx = packet['Target Index']
+      if self and target_id == self.id then target_id = 'me' end
+      if self and target_idx == self.index then target_idx = 'me' end
       
-      out:insert(T{target_id, packet['Option Index'], packet['_unknown1'], packet['Target Index'], tostring(packet['Automated Message']), packet['_unknown2'], packet['Zone'], packet['Menu ID']})
+      out:insert(T{id, target_id, packet['Option Index'], packet['_unknown1'], packet['Target Index'], tostring(packet['Automated Message']), packet['_unknown2'], packet['Zone'], packet['Menu ID']})
       last_update_time = os.clock()
+    end
+  elseif id == PACKET_OUT.WARP_REQUEST then
+    packet = packets.parse('outgoing', modified)
+    last_packet = packet
+    --log('warp request', success, busy)
+    
+    if settings.mirror and not (injecting and injected) then
+      success = 2
+      local self = windower.ffxi.get_player()
+      local target_id = packet['Target ID']
+      local target_idx = packet['Target Index']
+      if self and target_id == self.id then target_id = 'me' end
+      if self and target_idx == self.index then target_idx = 'me' end
+      
+      out:insert(T{id, packet.X, packet.Z, packet.Y, target_id, packet._unknown1, packet.Zone, packet['Menu ID'], target_idx, packet._unknown3})
     end
   end
 end)
 
 windower.register_event('incoming chunk', function(id, original, modified, injected, blocked)
+  local packet = nil
+  
+  --[[if     id == PACKET_INC.NPC_RELEASE then log('release')
+  elseif id == PACKET_INC.DIALOG_INFORMATION then log('dialog information')
+  elseif id == PACKET_INC.NPC_INTERACT_1 then log('npc interact 1')
+  elseif id == PACKET_INC.NPC_INTERACT_2 then log('npc interact 2')
+  end--]]
+  
+  if id == PACKET_INC.NPC_RELEASE and resetting then
+    print('reset success')
+    resetting = false
+    return
+  end
+  
+  if id == PACKET_INC.UPDATE_CHAR then
+    packet = packets.parse('incoming', modified)
+    status = packet.Status
+    --log('status', status)
+  end
+  
+  if id == PACKET_INC.NPC_INTERACT_1 or id == PACKET_INC.NPC_INTERACT_2 then
+    packet = packets.parse('incoming', modified)
+    
+    menus:insert({packet_id=id, npc=packet['NPC'], npc_index=packet['NPC Index'], zone=packet['Zone'], menu_id=packet['Menu ID']})
+    --print('0x%03x menu:':format(id), packet['Menu ID'], packet['Zone'])
+  end
+  
+  if id == 0x00A then
+    packet = packets.parse('incoming', modified)
+    if packet['Menu ID'] and packet['Menu ID'] > 0 then
+      --print('0x00A menu: ', packet['Menu ID'], packet['Menu Zone'])
+    end
+  end
+  
   if not busy and not injecting and not success then return end
   
-  if id == PACKET.NPC_INTERACT_1 or id == PACKET.NPC_INTERACT_2 then
-    local packet = packets.parse('incoming', original)
-    --log('npc interact', (id == PACKET.NPC_INTERACT_1 and 1 or 2))
-    success = 1
-    inc = id
-    if injecting then
+  if id == PACKET_INC.NPC_INTERACT_1 or id == PACKET_INC.NPC_INTERACT_2 then
+    --local packet = packets.parse('incoming', modified)
+    --log('npc interact', (id == PACKET_INC.NPC_INTERACT_1 and 1 or 2), success, busy)
+    if not injecting and settings.mirror then
+      success = 1
+      inc = id
+      menu_id = packet['Menu ID']
+    elseif packet['Menu ID'] == menu_id and injecting and injecting ~= 1 then
+      success = 1
+      busy = false
       for _, o in ipairs(out) do
         o = o:split(' ')
-        local target_id = o[1]
-        local index = tonumber(o[4])
-        local zone = tonumber(o[7])
-        local automated = false
-        if o[5] == 'true' then automated = true end
+        local out_id = tonumber(o:remove(1))
         
-        local self = windower.ffxi.get_mob_by_target('me')
-        local info = windower.ffxi.get_info()
+        --log(out_id, PACKET_OUT.DIALOG_CHOICE, out_id == PACKET_OUT.DIALOG_CHOICE)
         
-        if target_id == 'me' then target_id = self.id
-        else target_id = tonumber(target_id) end
-        
-        local packet = packets.new('outgoing', PACKET.DIALOG_CHOICE, {
-          ['Target'] = target_id,
-          ['Option Index'] = tonumber(o[2]),
-          ['_unknown1'] = o[3],
-          ['Target Index'] = tonumber(o[4]),
-          ['Automated Message'] = automated,
-          ['_unknown2'] = tonumber(o[6]),
-          ['Zone'] = zone,
-          ['Menu ID'] = tonumber(o[8])
-        })
-        
-        --log('dialog')
-        last_packet = packet
-        packets.inject(packet)
+        if out_id == PACKET_OUT.DIALOG_CHOICE then
+          local target_id = o[1]
+          local target_idx = o[4]
+          local zone = tonumber(o[7])
+          local automated = false
+          if o[5] == 'true' then automated = true end
+          
+          local self = windower.ffxi.get_mob_by_target('me')
+          
+          if target_id == 'me' then target_id = self.id
+          else target_id = tonumber(target_id) end
+          if target_idx == 'me' then target_idx = self.index
+          else target_idx = tonumber(target_idx) end
+          
+          local packet = packets.new('outgoing', PACKET_OUT.DIALOG_CHOICE, {
+            ['Target'] = target_id,
+            ['Option Index'] = tonumber(o[2]),
+            ['_unknown1'] = o[3],
+            ['Target Index'] = target_idx,
+            ['Automated Message'] = automated,
+            ['_unknown2'] = tonumber(o[6]),
+            ['Zone'] = zone,
+            ['Menu ID'] = tonumber(o[8]),
+          })
+          
+          --log('dialog', packet)
+          last_packet = packet
+          packets.inject(packet)
+        elseif out_id == PACKET_OUT.WARP_REQUEST then
+          local target_id = o[4]
+          local target_idx = o[8]
+          local zone = tonumber(o[6])
+          
+          local self = windower.ffxi.get_mob_by_target('me')
+          
+          if target_id == 'me' then target_id = self.id
+          else target_id = tonumber(target_id) end
+          if target_idx == 'me' then target_idx = self.index
+          else target_idx = tonumber(target_idx) end
+          
+          local packet = packets.new('outgoing', PACKET_OUT.WARP_REQUEST, {
+            ['X'] = tonumber(o[1]),
+            ['Z'] = tonumber(o[2]),
+            ['Y'] = tonumber(o[3]),
+            ['Target'] = target_id,
+            ['_unknown1'] = o[5],
+            ['Zone'] = zone,
+            ['Menu ID'] = tonumber(o[7]),
+            ['Target Index'] = target_idx,
+            ['_unknown3'] = tonumber(o[9]),
+          })
+          
+          --log('warp request', packet)
+          last_packet = packet
+          packets.inject(packet)
+        end
+        --log('inject 0x%0.3x':format(out_id))
       end
+      injecting = 1
       return true
+    elseif packet['Menu ID'] == menu_id and injecting then
+      return true
+    elseif injecting then
+      local self = windower.ffxi.get_player()
+      if self then windower.send_ipc_message('failure '..self.name) end
     end
-  elseif id == PACKET.ZONE_OUT then
+  elseif id == PACKET_INC.DIALOG_INFORMATION then
+    if injecting then return true end
+    --log('dialog information', success, busy)
+    success = 2
+  elseif id == PACKET_INC.INCOMING_CHAT then
+    --log('chat', success, busy)
+    if npc and (npc.name == 'Goblin Footprint' or npc.name == 'Ramblix') then
+      local packet = packets.parse('incoming', modified)
+      if packet.Mode == CHAT_MODE.SYSTEM then
+        busy = false
+        success = true
+        inc = id
+      end
+    end
+  elseif id == PACKET_INC.ZONE_OUT then
     busy = false
     success = true
     inc = id
-  elseif id == PACKET.UPDATE_CHAR then
-    local packet = packets.parse('incoming', original)
+  elseif id == PACKET_INC.KEY_ITEM then
+    busy = false
+    success = true
+    inc = id
+  elseif id == PACKET_INC.UPDATE_CHAR then
+    local packet = packets.parse('incoming', modified)
     status = packet.Status
     
     --log('status', status)
     
-    if status == 0 and prev_status == 4 then
+    if (status == 0 or status == 5) and prev_status == 4 then
       if success and settings.mirror and not busy then
         broadcast()
         success = false
@@ -256,25 +394,33 @@ windower.register_event('incoming chunk', function(id, original, modified, injec
       injecting = false
     end
     prev_status = status
-  elseif id == PACKET.NPC_RELEASE then
+  elseif id == PACKET_INC.NPC_RELEASE then
     released = os.time()
-    --log('release', success, busy)
-    coroutine.sleep(1)
-    --log('sleep', success, busy)
-    if success == 1 and settings.mirror then
+    --log('release', success, busy, status)
+    if success == 2 and settings.mirror then
       success = true
-      if status == 0 then busy = false end
-    elseif success and settings.mirror and status == 0 and not busy then
-      broadcast()
-      success = false
-      busy = false
-    elseif success and not settings.mirror then
+      return
+    end
+    coroutine.sleep(1)
+    --log('sleep', success, busy, status)
+    if success and injecting then
       injecting = false
+      success = false
       local self = windower.ffxi.get_player()
-      windower.send_ipc_message('success '..self.name)
+      if self then windower.send_ipc_message('success '..self.name) end
     elseif not success and injecting and attempts < MAX_ATTEMPTS then
       attempts = attempts + 1
       retry()
+    elseif not success and injecting then
+      local self = windower.ffxi.get_player()
+      if self then windower.send_ipc_message('failure '..self.name) end
+    elseif success == 1 and settings.mirror then
+      success = true
+      if status == 0 or status == 5 then busy = false end
+    elseif success and settings.mirror and (status == 0 or status == 5) and not busy then
+      broadcast()
+      success = false
+      busy = false
     end
   end
 end)
@@ -284,11 +430,10 @@ function broadcast()
   
   local outs = T{}
   for _, v in ipairs(out) do
-    --log(v)
-    outs:insert(v:concat(' '))
+    outs:insert(type(v) == 'string' and v or v:concat(' '))
   end
   
-  local msg = 'broadcast '..npc_id..' '..inc..' out '..outs:concat(' out ')
+  local msg = 'broadcast '..npc_id..' '..inc..' '..menu_id..' out '..outs:concat(' out ')
   
   --print(msg)
   --log(msg)
@@ -297,6 +442,7 @@ function broadcast()
   last_broadcast = msg
   last_npc = npc
   last_update_time = os.clock()
+  menu_id = 0
 end
 
 function inject()
@@ -307,11 +453,19 @@ function inject()
   busy = false
   attempts = 0
   
-  if not self or not npc or distance(self, npc) > 6.0 then return end
+  if not self or not npc or distance(self, npc) > 6.0 then
+    coroutine.sleep(1)
+    npc = windower.ffxi.get_mob_by_id(npc_id)
+    self = windower.ffxi.get_mob_by_target('me')
+    if not self or not npc or distance(self, npc) > 6.0 then
+      if self then windower.send_ipc_message('failure '..self.name) end
+      return
+    end
+  end
   
   injecting = true
   
-  local packet = packets.new('outgoing', PACKET.ACTION, {
+  local packet = packets.new('outgoing', PACKET_OUT.ACTION, {
     ['Target'] = npc_id,
     ['Target Index'] = npc.index,
     ['Category'] = ACTION_CATEGORY.NPC_INTERACTION,
@@ -330,7 +484,7 @@ function retry()
   
   injecting = true
   
-  local packet = packets.new('outgoing', PACKET.ACTION, {
+  local packet = packets.new('outgoing', PACKET_OUT.ACTION, {
     ['Target'] = npc_id,
     ['Target Index'] = npc.index,
     ['Category'] = ACTION_CATEGORY.NPC_INTERACTION,
@@ -345,41 +499,67 @@ function reset()
   -- Resetting against last poked npc.
   local self = windower.ffxi.get_mob_by_target('me')
   local zone = windower.ffxi.get_info().zone
-  if last_packet then 
-    local packet = packets.new('outgoing', PACKET.DIALOG_CHOICE, {
-      ['Target'] = last_packet['Target'],
+  resetting = true
+  
+  --log(menus)
+  
+  ArrayRemove(menus, function(t, i, j)
+    return t[i].zone == zone
+  end)
+  
+  if #menus == 0 then 
+    windower.add_to_chat(10,'You are not listed as in a menu interaction. Ignoring.')
+    return
+  end
+  
+  while #menus > 0 and resetting do
+    local packet = packets.new('outgoing', PACKET_OUT.DIALOG_CHOICE, {
+      ['Target'] = menus[#menus].npc,
       ['Option Index'] = '0',
       ['_unknown1'] = '16384',
-      ['Target Index'] = last_packet['Target Index'],
+      ['Target Index'] = menus[#menus].npc_index,
       ['Automated Message'] = false,
       ['_unknown2'] = 0,
-      ['Zone'] = last_packet['Zone'],
-      ['Menu ID'] = last_packet['Menu ID']
+      ['Zone'] = menus[#menus].zone,
+      ['Menu ID'] = menus[#menus].menu_id
     })
     
     packets.inject(packet)
-    windower.add_to_chat(10,'Should be reset now. Please try again.')
-  else
-    windower.add_to_chat(10,'You are not listed as in a menu interaction. Ignoring.')
+    
+    menus:remove(#menus)
+    
+    log('Attempting to reset...')
+    coroutine.sleep(2)
   end
+  
+  if resetting then
+    captionlog(nil, 10, 'Failed to reset?')
+  else
+    captionlog(nil, 10, 'Should be reset now. Please try again.')
+  end
+  
+  resetting = false
 end
 
 function updateInfo()
   box:visible(settings.show)
   local lines = T{}
   for name, status in pairs(report_info) do
-    lines:insert(name..' √')
+    if status then lines:insert(name..' √')
+    else           lines:insert(name..' ×') end
   end
   local maxWidth = math.max(1, table.reduce(lines, function(a, b) return math.max(a, #b) end, '1'))
   for i,line in ipairs(lines) do lines[i] = lines[i]:lpad(' ', maxWidth) end
   
   if not npc then lines:insert(1, 'Mirroring '..(settings.mirror and 'enabled' or 'disabled'))
   else
-    if last_npc and last_npc.id == npc_id then
+    if success then
+      lines = T{'NPC: '..npc.name, 'Interacting...'}
+    elseif last_npc and last_npc.id == npc_id then
       if #lines == 0 then lines:insert('Broadcasting...') end
       lines:insert(1, 'NPC: '..last_npc.name)
     else
-      lines = T{'Interacting...'}
+      lines = T{}
     end
   end
   
@@ -406,4 +586,23 @@ end
 
 function distance(A, B)
   return math.sqrt((A.x - B.x)^2 + (A.y - B.y)^2)
+end
+
+function ArrayRemove(t, fnKeep)
+  local j, n = 1, #t;
+
+  for i=1,n do
+    if (fnKeep(t, i, j)) then
+      -- Move i's kept value to j's position, if it's not already there.
+      if (i ~= j) then
+        t[j] = t[i];
+        t[i] = nil;
+      end
+      j = j + 1; -- Increment position of where we'll place the next kept value.
+    else
+      t[i] = nil;
+    end
+  end
+
+  return t;
 end
