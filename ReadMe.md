@@ -1,13 +1,17 @@
 # NpcInteract
 FFXI Windower addon for multiboxers to reduce tedious switching. Make your alts copy your main's NPC interactions!
 
+## Known Issues
+
+When purchasing key items from NPCs, the addon may repeatedly purchase the same item until whatever resource is exhausted. This may happen even for key items you can have only one of. I strongly recommend to disabling this addon for all unsupported NPC interactions.
+
 Note that this addon is still a WORK IN PROGRESS has not been tested to function exhaustively in all cases. If you experience an issue,
 
 # PLEASE DISABLE NPCINTERACT BEFORE FILING A TICKET ON FFERA!
 
 Retry the interaction after restarting the game and disabling NpcInteract.
 
-This addon hast been tested to work in the following cases:
+This addon has been tested to work in the following cases:
 
 * Conquest NPCs (signet, etc.)
 * Field Manuals (changing page, getting tab buffs)
