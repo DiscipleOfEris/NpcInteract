@@ -87,7 +87,9 @@ end)
 
 windower.register_event('addon command', function(command, ...)
   args = T{...}
-  command = command:lower()
+  if command then
+  	command = command:lower()
+  end
   
   if not command or command == 'help'  then
     log('npc mirror [on/off] -- Toggle/enable/disable mirroring, causing all other alts to mirror this one.')
